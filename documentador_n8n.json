@@ -1,0 +1,113 @@
+{
+  "name": "Documentador Automático de Projetos IA",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "documentar",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-input",
+      "name": "Webhook Input",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "documentar-projeto"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\n\nconst modo = body.modo || 'codigo'; // 'codigo' ou 'perguntas'\n\nlet userMessage = '';\n\nif (modo === 'codigo') {\n  userMessage = `Documenta o seguinte projeto/prompt/fluxo de automação:\\n\\n${body.conteudo}`;\n} else {\n  // modo perguntas\n  userMessage = `Documenta um projeto com base nas seguintes informações:\\n\n- Nome do projeto: ${body.nome || 'Não informado'}\n- O que faz: ${body.o_que_faz || 'Não informado'}\n- Problema que resolve: ${body.problema || 'Não informado'}\n- Ferramentas usadas: ${body.ferramentas || 'Não informado'}\n- Resultado/impacto: ${body.resultado || 'Não informado'}\n- Observações extras: ${body.observacoes || 'Nenhuma'}`;\n}\n\nreturn [{ json: { userMessage, modo, nome: body.nome || 'projeto' } }];"
+      },
+      "id": "preparar-input",
+      "name": "Preparar Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-20250514\",\n  \"max_tokens\": 2000,\n  \"system\": \"Você é um especialista em documentação técnica de projetos de IA e automação. Gere sempre documentação em formato Markdown bem estruturado. Seja claro, objetivo e profissional. Inclua emojis nos títulos para facilitar leitura visual.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.userMessage }}\\n\\n---\\nGere a documentação no seguinte formato Markdown:\\n\\n# 🤖 [Nome do Projeto]\\n\\n## 📋 Resumo\\n[1-2 frases descrevendo o projeto]\\n\\n## 🎯 Problema Resolvido\\n[Qual dor ou ineficiência esse projeto resolve]\\n\\n## ⚙️ Como Funciona\\n[Explicação passo a passo do fluxo/lógica]\\n\\n## 🛠️ Ferramentas e Tecnologias\\n[Liste as ferramentas usadas]\\n\\n## 📊 Resultados e Impacto\\n[Benefícios gerados, tempo economizado, melhorias]\\n\\n## 💡 Prompt / Lógica Principal\\n[Se houver prompt ou código central, documente aqui]\\n\\n## 🔁 Possíveis Melhorias\\n[Ideias para evoluir o projeto]\\n\\n## 🏷️ Tags\\n[tags relevantes separadas por vírgula para indexação]\\n\\n---\\n*Documentado automaticamente em {{ $now.format('DD/MM/YYYY') }}*\"\n    }\n  ]\n}"
+      },
+      "id": "claude-api",
+      "name": "Claude API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst markdown = response.content[0].text;\n\n// Gera nome do arquivo baseado na data e nome do projeto\nconst nome = $('Preparar Input').first().json.nome\n  .toLowerCase()\n  .replace(/\\s+/g, '_')\n  .replace(/[^a-z0-9_]/g, '');\n\nconst data = new Date().toISOString().slice(0, 10);\nconst filename = `${data}_${nome}.md`;\n\nreturn [{ json: { markdown, filename } }];"
+      },
+      "id": "formatar-output",
+      "name": "Formatar Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/home/seu-usuario/docs-projetos-ia/{{ $json.filename }}",
+        "text": "={{ $json.markdown }}",
+        "options": {}
+      },
+      "id": "salvar-arquivo",
+      "name": "Salvar Markdown",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"sucesso\",\n  \"arquivo\": \"{{ $('Formatar Output').first().json.filename }}\",\n  \"mensagem\": \"Documentação gerada com sucesso!\"\n}",
+        "options": {}
+      },
+      "id": "resposta-webhook",
+      "name": "Resposta Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Input": {
+      "main": [[{ "node": "Preparar Input", "type": "main", "index": 0 }]]
+    },
+    "Preparar Input": {
+      "main": [[{ "node": "Claude API", "type": "main", "index": 0 }]]
+    },
+    "Claude API": {
+      "main": [[{ "node": "Formatar Output", "type": "main", "index": 0 }]]
+    },
+    "Formatar Output": {
+      "main": [[{ "node": "Salvar Markdown", "type": "main", "index": 0 }]]
+    },
+    "Salvar Markdown": {
+      "main": [[{ "node": "Resposta Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
